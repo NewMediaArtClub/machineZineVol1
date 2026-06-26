@@ -8,61 +8,72 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
-  body {
+  html, body {
+    height: 100%;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: #111;
     color: #eee;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    overflow-x: hidden;
+    overflow: hidden;
   }
 
   #viewer {
+    height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 100%;
-    min-height: 100vh;
-    padding: 2rem 1rem 5rem;
   }
 
+  /* Top bar — fixed height */
   #top-bar {
+    flex-shrink: 0;
+    width: 100%;
+    padding: 0.75rem 1.5rem;
     display: flex;
     align-items: center;
-    width: 100%;
-    max-width: 900px;
-    margin-bottom: 2rem;
   }
 
   #doc-title {
-    flex: 1;
-    font-size: 0.9rem;
-    color: #555;
-    letter-spacing: 0.06em;
+    font-size: 0.75rem;
+    color: #444;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     font-weight: 500;
   }
 
+  /* Stage fills remaining space */
   #stage {
-    perspective: 2000px;
+    flex: 1;
     width: 100%;
-    max-width: 780px;
-    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: 2000px;
+    overflow: hidden;
+    padding: 0 1rem;
+    min-height: 0;
   }
 
   .page-wrapper {
     position: relative;
-    border-radius: 4px;
+    border-radius: 3px;
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.7), 0 0 0 0.5px rgba(255,255,255,0.06);
+    box-shadow: 0 16px 48px rgba(0,0,0,0.8), 0 0 0 0.5px rgba(255,255,255,0.06);
+    /* size is set by JS to fit the stage */
+    flex-shrink: 0;
   }
 
-  #canvas-current, #canvas-next {
+  #canvas-current {
     display: block;
-    max-width: 100%;
-    height: auto;
+    width: 100%;
+    height: 100%;
+  }
+
+  #canvas-next {
+    display: none;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
   }
 
   #flip-overlay {
@@ -71,7 +82,7 @@
     pointer-events: none;
     z-index: 10;
     display: none;
-    border-radius: 4px;
+    border-radius: 3px;
     overflow: hidden;
   }
 
@@ -79,58 +90,56 @@
     display: block;
     width: 100%;
     height: 100%;
-    object-fit: contain;
-    border-radius: 4px;
     transform-origin: left center;
     backface-visibility: hidden;
   }
 
   @keyframes flip-forward {
     0%   { transform: rotateY(0deg); opacity: 1; }
-    40%  { transform: rotateY(-60deg); opacity: 0.9; box-shadow: -20px 0 40px rgba(0,0,0,0.4); }
+    40%  { transform: rotateY(-60deg); opacity: 0.9; box-shadow: -20px 0 40px rgba(0,0,0,0.5); }
     100% { transform: rotateY(-180deg); opacity: 0; }
   }
 
   @keyframes flip-backward {
     0%   { transform: rotateY(-180deg); opacity: 0; }
-    40%  { transform: rotateY(-120deg); opacity: 0.9; box-shadow: -20px 0 40px rgba(0,0,0,0.4); }
+    40%  { transform: rotateY(-120deg); opacity: 0.9; box-shadow: -20px 0 40px rgba(0,0,0,0.5); }
     100% { transform: rotateY(0deg); opacity: 1; }
   }
 
   #canvas-flip.flipping-forward {
     animation: flip-forward 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
-
   #canvas-flip.flipping-backward {
     transform-origin: right center;
     animation: flip-backward 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  /* Controls bar — fixed height at bottom */
+  #controls {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem 1rem;
+    width: 100%;
   }
 
   #page-track {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    margin-top: 2rem;
-    justify-content: center;
-  }
-
-  #page-info {
-    font-size: 0.85rem;
-    color: #555;
-    min-width: 80px;
-    text-align: center;
-    margin-top: 0.75rem;
   }
 
   .nav-btn {
     background: #1c1c1c;
     border: 1px solid #2e2e2e;
     color: #ccc;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     cursor: pointer;
-    font-size: 1.1rem;
+    font-size: 1rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -146,7 +155,7 @@
     display: flex;
     gap: 4px;
     align-items: center;
-    max-width: 240px;
+    max-width: 260px;
     overflow: hidden;
   }
 
@@ -163,11 +172,34 @@
   .dot.active { background: #fff; transform: scale(1.4); }
   .dot.near   { background: #666; }
 
+  #page-info {
+    font-size: 0.78rem;
+    color: #444;
+    text-align: center;
+  }
+
+  #key-hint {
+    font-size: 0.7rem;
+    color: #2e2e2e;
+    display: flex;
+    gap: 1rem;
+  }
+
+  #key-hint kbd {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 0.68rem;
+    font-family: inherit;
+    color: #444;
+  }
+
+  /* Loading */
   #loading {
     display: none;
     position: absolute;
-    top: 50%;
-    left: 50%;
+    top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     color: #555;
     font-size: 0.85rem;
@@ -175,45 +207,24 @@
     align-items: center;
     flex-direction: column;
   }
-
   #loading.active { display: flex; }
 
   .spinner {
-    width: 28px;
-    height: 28px;
+    width: 28px; height: 28px;
     border: 2px solid #2a2a2a;
     border-top-color: #777;
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
   }
-
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  #key-hint {
-    margin-top: 1.5rem;
-    font-size: 0.75rem;
-    color: #333;
-    display: flex;
-    gap: 1rem;
-  }
-
-  #key-hint kbd {
-    background: #1c1c1c;
-    border: 1px solid #2e2e2e;
-    border-radius: 4px;
-    padding: 1px 6px;
-    font-size: 0.72rem;
-    font-family: inherit;
-    color: #555;
-  }
 
   #error-msg {
     display: none;
     color: #c0392b;
     font-size: 0.9rem;
-    margin-top: 2rem;
     text-align: center;
     line-height: 1.6;
+    padding: 2rem;
   }
 </style>
 </head>
@@ -227,28 +238,27 @@
   <div id="stage">
     <div class="page-wrapper" id="page-wrapper">
       <canvas id="canvas-current"></canvas>
-      <canvas id="canvas-next" style="display:none; position:absolute; top:0; left:0;"></canvas>
+      <canvas id="canvas-next"></canvas>
       <div id="flip-overlay">
         <canvas id="canvas-flip"></canvas>
       </div>
       <div id="loading"><div class="spinner"></div><span>Loading...</span></div>
     </div>
+    <div id="error-msg"></div>
   </div>
 
-  <div id="page-track">
-    <button class="nav-btn" id="prev-btn" onclick="changePage(-1)" disabled>&#8592;</button>
-    <div id="progress-dots"></div>
-    <button class="nav-btn" id="next-btn" onclick="changePage(1)" disabled>&#8594;</button>
+  <div id="controls">
+    <div id="page-track">
+      <button class="nav-btn" id="prev-btn" onclick="changePage(-1)" disabled>&#8592;</button>
+      <div id="progress-dots"></div>
+      <button class="nav-btn" id="next-btn" onclick="changePage(1)" disabled>&#8594;</button>
+    </div>
+    <div id="page-info"></div>
+    <div id="key-hint">
+      <span><kbd>&#8592;</kbd> previous</span>
+      <span><kbd>&#8594;</kbd> next</span>
+    </div>
   </div>
-
-  <div id="page-info"></div>
-
-  <div id="key-hint">
-    <span><kbd>&#8592;</kbd> previous</span>
-    <span><kbd>&#8594;</kbd> next</span>
-  </div>
-
-  <div id="error-msg"></div>
 </div>
 
 <script>
@@ -261,7 +271,10 @@
   let currentPage = 1;
   let totalPages = 0;
   let isAnimating = false;
+  let pageAspect = 1; // height / width
 
+  const stage       = document.getElementById('stage');
+  const pageWrapper = document.getElementById('page-wrapper');
   const canvasCurrent = document.getElementById('canvas-current');
   const canvasNext    = document.getElementById('canvas-next');
   const canvasFlip    = document.getElementById('canvas-flip');
@@ -273,39 +286,59 @@
   const loadingEl     = document.getElementById('loading');
   const errorMsg      = document.getElementById('error-msg');
 
+  // Work out display size from the stage dimensions and PDF aspect ratio
+  function getDisplaySize() {
+    const stageW = stage.clientWidth  - 32; // padding
+    const stageH = stage.clientHeight - 16;
+    const byWidth  = { w: stageW, h: stageW * pageAspect };
+    const byHeight = { w: stageH / pageAspect, h: stageH };
+    return byWidth.h <= stageH ? byWidth : byHeight;
+  }
+
+  function sizeWrapper() {
+    const { w, h } = getDisplaySize();
+    pageWrapper.style.width  = w + 'px';
+    pageWrapper.style.height = h + 'px';
+  }
+
+  // Render a PDF page into a canvas at the wrapper's pixel size
+  async function renderPage(pageNum, targetCanvas) {
+    const page = await pdfDoc.getPage(pageNum);
+    const { w, h } = getDisplaySize();
+    const dpr = window.devicePixelRatio || 1;
+    targetCanvas.width  = Math.round(w * dpr);
+    targetCanvas.height = Math.round(h * dpr);
+    targetCanvas.style.width  = w + 'px';
+    targetCanvas.style.height = h + 'px';
+    const vp = page.getViewport({ scale: (w * dpr) / page.getViewport({ scale: 1 }).width });
+    await page.render({ canvasContext: targetCanvas.getContext('2d'), viewport: vp }).promise;
+  }
+
   async function init() {
     loadingEl.classList.add('active');
     try {
       pdfDoc = await pdfjsLib.getDocument(PDF_PATH).promise;
       totalPages = pdfDoc.numPages;
       currentPage = 1;
+
+      // Get aspect ratio from first page
+      const firstPage = await pdfDoc.getPage(1);
+      const vp = firstPage.getViewport({ scale: 1 });
+      pageAspect = vp.height / vp.width;
+
+      sizeWrapper();
+      await renderPage(1, canvasCurrent);
       loadingEl.classList.remove('active');
       buildDots();
-      await renderPage(currentPage, canvasCurrent);
       updateUI();
     } catch (err) {
       loadingEl.classList.remove('active');
+      pageWrapper.style.display = 'none';
       errorMsg.style.display = 'block';
       errorMsg.innerHTML =
         'Could not load <strong>machinezine.pdf</strong>.<br>' +
-        'Make sure it sits in the same folder as this HTML file.';
+        'Check the file URL and CORS settings.';
     }
-  }
-
-  async function renderPage(pageNum, targetCanvas) {
-    const page = await pdfDoc.getPage(pageNum);
-    const scale = getScale(page);
-    const viewport = page.getViewport({ scale });
-    targetCanvas.width  = viewport.width;
-    targetCanvas.height = viewport.height;
-    const ctx = targetCanvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
-  }
-
-  function getScale(page) {
-    const maxW = Math.min(780, window.innerWidth - 40) * window.devicePixelRatio;
-    const vp = page.getViewport({ scale: 1 });
-    return Math.min(maxW / vp.width, 2.5);
   }
 
   async function changePage(direction) {
@@ -317,20 +350,23 @@
     prevBtn.disabled = true;
     nextBtn.disabled = true;
 
-    canvasNext.style.display = 'none';
     await renderPage(target, canvasNext);
 
     const w = canvasCurrent.width;
     const h = canvasCurrent.height;
     canvasFlip.width  = w;
     canvasFlip.height = h;
+    canvasFlip.style.width  = canvasCurrent.style.width;
+    canvasFlip.style.height = canvasCurrent.style.height;
     canvasFlip.getContext('2d').drawImage(canvasCurrent, 0, 0);
 
     flipOverlay.style.display = 'block';
 
-    const ctxCurrent = canvasCurrent.getContext('2d');
-    ctxCurrent.clearRect(0, 0, w, h);
-    ctxCurrent.drawImage(canvasNext, 0, 0);
+    const ctxC = canvasCurrent.getContext('2d');
+    ctxC.clearRect(0, 0, w, h);
+    ctxC.drawImage(canvasNext, 0, 0);
+    canvasCurrent.style.width  = canvasNext.style.width;
+    canvasCurrent.style.height = canvasNext.style.height;
 
     canvasFlip.classList.remove('flipping-forward', 'flipping-backward');
     void canvasFlip.offsetWidth;
@@ -396,6 +432,17 @@
       d.classList.toggle('near', Math.abs(p - currentPage) <= 2 && p !== currentPage);
     });
   }
+
+  // Resize handler — re-size wrapper and re-render current page
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(async () => {
+      if (!pdfDoc) return;
+      sizeWrapper();
+      await renderPage(currentPage, canvasCurrent);
+    }, 150);
+  });
 
   document.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') changePage(1);
