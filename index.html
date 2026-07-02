@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Machinezine</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
   html, body {
     height: 100%;
@@ -14,10 +14,12 @@
     background: #111;
     color: #eee;
     overflow: hidden;
+    overscroll-behavior: none;
   }
 
   #viewer {
-    height: 100vh;
+    height: 100%;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -27,6 +29,7 @@
     flex-shrink: 0;
     width: 100%;
     padding: 0.6rem 1.5rem;
+    padding-top: max(0.6rem, env(safe-area-inset-top));
     display: flex;
     align-items: center;
   }
@@ -48,6 +51,7 @@
     justify-content: center;
     padding: 0 1rem;
     position: relative;
+    touch-action: pan-y;
   }
 
   /* The spread container holds 1 or 2 pages side by side */
@@ -85,7 +89,22 @@
     box-shadow: 0 16px 48px rgba(0,0,0,0.8), 0 0 0 0.5px rgba(255,255,255,0.05);
   }
 
-  canvas { display: block; }
+  canvas { display: block; pointer-events: none; }
+
+  /* Click / tap zones over the visible spread, left half = prev, right half = next */
+  #nav-zones {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    z-index: 5;
+  }
+  .nav-zone {
+    flex: 1;
+    height: 100%;
+  }
+  .nav-zone.left  { cursor: w-resize; }
+  .nav-zone.right { cursor: e-resize; }
+  .nav-zone.disabled { cursor: default; }
 
   /* Flip overlay sits over the whole spread */
   #flip-overlay {
@@ -123,6 +142,12 @@
     animation: flip-backward 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
 
+  /* Live drag-follow tracking (touch/mouse swipe in progress) */
+  #canvas-flip.dragging {
+    animation: none;
+    transition: none;
+  }
+
   #controls {
     flex-shrink: 0;
     display: flex;
@@ -130,6 +155,7 @@
     align-items: center;
     gap: 0.4rem;
     padding: 0.6rem 1rem 0.8rem;
+    padding-bottom: max(0.8rem, env(safe-area-inset-bottom));
   }
 
   #page-track {
@@ -151,8 +177,10 @@
     justify-content: center;
     transition: background 0.15s, border-color 0.15s;
     user-select: none;
+    touch-action: manipulation;
   }
   .nav-btn:hover:not(:disabled) { background: #2a2a2a; border-color: #555; }
+  .nav-btn:active:not(:disabled) { background: #333; }
   .nav-btn:disabled { opacity: 0.2; cursor: default; }
 
   #progress-dots {
@@ -194,6 +222,12 @@
     color: #3a3a3a;
   }
 
+  #swipe-hint {
+    font-size: 0.68rem;
+    color: #272727;
+    display: none;
+  }
+
   #loading {
     position: absolute;
     top: 50%; left: 50%;
@@ -224,6 +258,24 @@
     line-height: 1.6;
     padding: 2rem;
   }
+
+  /* Touch / small-screen tuning: bigger tap targets, hide the keyboard hint,
+     show the swipe hint instead */
+  @media (pointer: coarse) {
+    #key-hint { display: none; }
+    #swipe-hint { display: block; }
+    .nav-btn { width: 42px; height: 42px; font-size: 1.15rem; }
+    #page-track { gap: 1rem; }
+  }
+
+  @media (max-width: 480px) {
+    #top-bar { padding: 0.5rem 1rem; }
+    #doc-title { font-size: 0.62rem; }
+    #stage { padding: 0 0.4rem; }
+    #controls { padding: 0.5rem 0.75rem 0.7rem; padding-bottom: max(0.7rem, env(safe-area-inset-bottom)); gap: 0.3rem; }
+    #progress-dots { max-width: 180px; }
+    #page-info { font-size: 0.66rem; }
+  }
 </style>
 </head>
 <body>
@@ -239,6 +291,10 @@
       </div>
       <div class="page-panel" id="panel-right" style="display:none;">
         <canvas id="canvas-right"></canvas>
+      </div>
+      <div id="nav-zones">
+        <div class="nav-zone left"></div>
+        <div class="nav-zone right"></div>
       </div>
       <div id="flip-overlay">
         <canvas id="canvas-flip"></canvas>
@@ -259,6 +315,7 @@
       <span><kbd>&#8592;</kbd> previous</span>
       <span><kbd>&#8594;</kbd> next</span>
     </div>
+    <div id="swipe-hint">Swipe to turn the page</div>
   </div>
 </div>
 
@@ -291,6 +348,8 @@
   const progressDots= document.getElementById('progress-dots');
   const loadingEl   = document.getElementById('loading');
   const errorMsg    = document.getElementById('error-msg');
+  const navZoneLeft = document.querySelector('.nav-zone.left');
+  const navZoneRight= document.querySelector('.nav-zone.right');
 
   // How many spreads total?
   // Spread 0 = page 1, spread 1 = pages 2-3, spread 2 = pages 4-5, ...
@@ -397,6 +456,7 @@
     isAnimating = true;
     prevBtn.disabled = true;
     nextBtn.disabled = true;
+    setNavZonesDisabled(true);
 
     // Pre-render target spread into staging canvases
     await renderSpread(target, stageLeft, stageRight);
@@ -405,7 +465,6 @@
     // We need to combine both panels into one image for the flip
     const curW = panelLeft.offsetWidth + (panelRight.style.display !== 'none' ? panelRight.offsetWidth : 0);
     const curH = panelLeft.offsetHeight;
-    const dpr  = window.devicePixelRatio || 1;
 
     canvasFlip.width  = canvasLeft.width + (panelRight.style.display !== 'none' ? canvasRight.width : 0);
     canvasFlip.height = canvasLeft.height;
@@ -444,7 +503,7 @@
     panelLeft.style.width   = stageLeft.style.width;
     panelLeft.style.height  = stageLeft.style.height;
 
-    canvasFlip.classList.remove('flipping-forward', 'flipping-backward');
+    canvasFlip.classList.remove('flipping-forward', 'flipping-backward', 'dragging');
     void canvasFlip.offsetWidth;
     canvasFlip.classList.add(direction > 0 ? 'flipping-forward' : 'flipping-backward');
 
@@ -454,9 +513,15 @@
       flipOverlay.style.display = 'none';
       canvasFlip.classList.remove('flipping-forward', 'flipping-backward');
       isAnimating = false;
+      setNavZonesDisabled(false);
       prevBtn.disabled = spreadIdx <= 0;
       nextBtn.disabled = spreadIdx >= totalSpreads() - 1;
     }, 520);
+  }
+
+  function setNavZonesDisabled(disabled) {
+    navZoneLeft.classList.toggle('disabled', disabled || spreadIdx <= 0);
+    navZoneRight.classList.toggle('disabled', disabled || spreadIdx >= totalSpreads() - 1);
   }
 
   function updateUI() {
@@ -464,9 +529,10 @@
     const last  = pages[pages.length - 1];
     pageInfo.textContent = pages.length === 1
       ? `Page ${pages[0]} of ${totalPages}`
-      : `Pages ${pages[0]}–${last} of ${totalPages}`;
+      : `Pages ${pages[0]}\u2013${last} of ${totalPages}`;
     prevBtn.disabled = spreadIdx <= 0 || isAnimating;
     nextBtn.disabled = spreadIdx >= totalSpreads() - 1 || isAnimating;
+    setNavZonesDisabled(false);
     updateDots();
   }
 
@@ -496,6 +562,7 @@
     isAnimating = true;
     prevBtn.disabled = true;
     nextBtn.disabled = true;
+    setNavZonesDisabled(true);
     loadingEl.classList.add('active');
     spreadIdx = i;
     await renderSpread(i, canvasLeft, canvasRight);
@@ -516,6 +583,88 @@
   document.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') turn(1);
     if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   turn(-1);
+  });
+
+  // --- Click zones: tap/click the left or right half of the spread to turn pages ---
+  navZoneLeft.addEventListener('click', () => turn(-1));
+  navZoneRight.addEventListener('click', () => turn(1));
+
+  // --- Touch swipe and mouse-drag gestures ---
+  // Works for touch (phone/iPad) via touchstart/move/end, and for mouse
+  // via pointerdown/move/up so a trackpad or mouse drag also turns pages.
+  let dragActive   = false;
+  let dragStartX   = 0;
+  let dragStartY   = 0;
+  let dragLastX    = 0;
+  let dragIsSwipe  = null; // null = undecided, true = horizontal swipe, false = vertical scroll/ignore
+
+  const SWIPE_THRESHOLD   = 40;  // px needed to commit to a page turn
+  const SWIPE_LOCK_ANGLE  = 0.6; // ratio of |dx| vs |dy| to decide "this is horizontal"
+
+  function dragStart(x, y) {
+    if (isAnimating) return;
+    dragActive  = true;
+    dragStartX  = x;
+    dragStartY  = y;
+    dragLastX   = x;
+    dragIsSwipe = null;
+  }
+
+  function dragMove(x, y, ev) {
+    if (!dragActive || isAnimating) return;
+    const dx = x - dragStartX;
+    const dy = y - dragStartY;
+
+    if (dragIsSwipe === null) {
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+        dragIsSwipe = Math.abs(dx) > Math.abs(dy) * SWIPE_LOCK_ANGLE;
+      }
+    }
+
+    if (dragIsSwipe && ev && ev.cancelable) ev.preventDefault();
+    dragLastX = x;
+  }
+
+  function dragEnd() {
+    if (!dragActive) return;
+    dragActive = false;
+    if (!dragIsSwipe) return;
+
+    const dx = dragLastX - dragStartX;
+    if (dx <= -SWIPE_THRESHOLD) {
+      turn(1);   // swiped left -> next page
+    } else if (dx >= SWIPE_THRESHOLD) {
+      turn(-1);  // swiped right -> previous page
+    }
+  }
+
+  stage.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    dragStart(t.clientX, t.clientY);
+  }, { passive: true });
+
+  stage.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    dragMove(t.clientX, t.clientY, e);
+  }, { passive: false });
+
+  stage.addEventListener('touchend', () => dragEnd(), { passive: true });
+  stage.addEventListener('touchcancel', () => { dragActive = false; }, { passive: true });
+
+  // Mouse drag support (desktop/trackpad users who want to drag instead of clicking)
+  let mouseDown = false;
+  stage.addEventListener('mousedown', e => {
+    mouseDown = true;
+    dragStart(e.clientX, e.clientY);
+  });
+  window.addEventListener('mousemove', e => {
+    if (!mouseDown) return;
+    dragMove(e.clientX, e.clientY, e);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!mouseDown) return;
+    mouseDown = false;
+    dragEnd();
   });
 
   init();
